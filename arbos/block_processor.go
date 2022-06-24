@@ -79,7 +79,7 @@ type SequencingHooks struct {
 	TxErrors       []error
 	RequireDataGas bool
 	PreTxFilter    func(*arbosState.ArbosState, *types.Transaction, common.Address) error
-	PostTxFilter   func(*arbosState.ArbosState, *types.Transaction, common.Address, uint64, *types.Receipt) error
+	PostTxFilter   func(*arbosState.ArbosState, *types.Transaction, common.Address, uint64, []*types.Receipt) error
 }
 
 func noopSequencingHooks() *SequencingHooks {
@@ -89,7 +89,7 @@ func noopSequencingHooks() *SequencingHooks {
 		func(*arbosState.ArbosState, *types.Transaction, common.Address) error {
 			return nil
 		},
-		func(*arbosState.ArbosState, *types.Transaction, common.Address, uint64, *types.Receipt) error {
+		func(*arbosState.ArbosState, *types.Transaction, common.Address, uint64, []*types.Receipt) error {
 			return nil
 		},
 	}
@@ -198,7 +198,7 @@ func ProduceBlockAdvanced(
 		var sender common.Address
 		var dataGas uint64 = 0
 		gasPool := gethGas
-		receipt, scheduled, err := (func() (*types.Receipt, types.Transactions, error) {
+		txReceipts, scheduled, err := (func() ([]*types.Receipt, types.Transactions, error) {
 			sender, err = signer.Sender(tx)
 			if err != nil {
 				return nil, nil, err
@@ -241,7 +241,7 @@ func ProduceBlockAdvanced(
 			snap := statedb.Snapshot()
 			statedb.Prepare(tx.Hash(), len(receipts)) // the number of successful state transitions
 
-			receipt, result, err := core.ApplyTransaction(
+			txReceipts, results, err := core.ApplyTransaction(
 				chainConfig,
 				chainContext,
 				&header.Coinbase,
@@ -258,7 +258,12 @@ func ProduceBlockAdvanced(
 				return nil, nil, err
 			}
 
-			return receipt, result.ScheduledTxes, hooks.PostTxFilter(state, tx, sender, dataGas, receipt)
+			scheduledTxes := []*types.Transaction{}
+			for _, result := range results {
+				scheduledTxes = append(scheduledTxes, result.ScheduledTxes...)
+			}
+
+			return txReceipts, scheduledTxes, hooks.PostTxFilter(state, tx, sender, dataGas, txReceipts)
 		})()
 
 		// append the err, even if it is nil
@@ -306,28 +311,30 @@ func ProduceBlockAdvanced(
 		// append any scheduled redeems
 		redeems = append(redeems, scheduled...)
 
-		for _, txLog := range receipt.Logs {
-			if txLog.Address == ArbSysAddress {
-				// L2ToL1TransactionEventID is deprecated in upgrade 4, but it should to safe to make this code handle
-				// both events ignoring the version.
-				// TODO: Remove L2ToL1Transaction handling on next chain reset
-				// L2->L1 withdrawals remove eth from the system
-				switch txLog.Topics[0] {
-				case L2ToL1TransactionEventID:
-					event := &precompilesgen.ArbSysL2ToL1Transaction{}
-					err := util.ParseL2ToL1TransactionLog(event, txLog)
-					if err != nil {
-						log.Error("Failed to parse L2ToL1Transaction log", "err", err)
-					} else {
-						expectedBalanceDelta.Sub(expectedBalanceDelta, event.Callvalue)
-					}
-				case L2ToL1TxEventID:
-					event := &precompilesgen.ArbSysL2ToL1Tx{}
-					err := util.ParseL2ToL1TxLog(event, txLog)
-					if err != nil {
-						log.Error("Failed to parse L2ToL1Tx log", "err", err)
-					} else {
-						expectedBalanceDelta.Sub(expectedBalanceDelta, event.Callvalue)
+		for _, receipt := range receipts {
+			for _, txLog := range receipt.Logs {
+				if txLog.Address == ArbSysAddress {
+					// L2ToL1TransactionEventID is deprecated in upgrade 4, but it should to safe to make this code handle
+					// both events ignoring the version.
+					// TODO: Remove L2ToL1Transaction handling on next chain reset
+					// L2->L1 withdrawals remove eth from the system
+					switch txLog.Topics[0] {
+					case L2ToL1TransactionEventID:
+						event := &precompilesgen.ArbSysL2ToL1Transaction{}
+						err := util.ParseL2ToL1TransactionLog(event, txLog)
+						if err != nil {
+							log.Error("Failed to parse L2ToL1Transaction log", "err", err)
+						} else {
+							expectedBalanceDelta.Sub(expectedBalanceDelta, event.Callvalue)
+						}
+					case L2ToL1TxEventID:
+						event := &precompilesgen.ArbSysL2ToL1Tx{}
+						err := util.ParseL2ToL1TxLog(event, txLog)
+						if err != nil {
+							log.Error("Failed to parse L2ToL1Tx log", "err", err)
+						} else {
+							expectedBalanceDelta.Sub(expectedBalanceDelta, event.Callvalue)
+						}
 					}
 				}
 			}
@@ -343,7 +350,7 @@ func ProduceBlockAdvanced(
 		}
 
 		complete = append(complete, tx)
-		receipts = append(receipts, receipt)
+		receipts = append(receipts, txReceipts...)
 
 		if isUserTx {
 			userTxsCompleted++

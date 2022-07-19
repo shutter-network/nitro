@@ -2,27 +2,32 @@ package arbnode
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/pkg/errors"
 )
 
-// DecodeBatchTx decodes a hex string to a types.BatchTx. The hex decoded data is assumed to be an
-// RLP encoded BatchTx
-func DecodeBatchTx(hexString string) (*types.BatchTx, error) {
-	b, err := hex.DecodeString(hexString)
+var errBadType = errors.New("not a batch transaction")
+
+// DecodeTx decodes a 0x prefixed hex string to a Transaction. The hex decoded data is assumed to
+// be a batch transaction in canonical encoding.
+func DecodeTx(hexString string) (*types.Transaction, error) {
+	b, err := hexutil.Decode(hexString)
 	if err != nil {
 		return nil, err
 	}
-	var batchTx types.BatchTx
-	err = rlp.DecodeBytes(b, &batchTx)
+	var tx types.Transaction
+	err = tx.UnmarshalBinary(b)
 	if err != nil {
 		return nil, err
 	}
-	return &batchTx, nil
+	if tx.Type() != types.BatchTxType {
+		return nil, errBadType
+	}
+	return &tx, nil
 }
 
 type ShutterAPI struct {
@@ -47,11 +52,10 @@ func (shapi *ShutterAPI) Hello(s string) string {
 
 func (shapi *ShutterAPI) SubmitBatch(s string) error {
 	ctx := context.TODO()
-	batchTx, err := DecodeBatchTx(s)
+	tx, err := DecodeTx(s)
 	if err != nil {
 		return err
 	}
-	tx := types.NewTx(batchTx)
 	err = shapi.txPublisher.PublishTransaction(ctx, tx)
 	return err
 }

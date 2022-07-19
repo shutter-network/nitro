@@ -972,7 +972,7 @@ func CreateNode(
 		Service:   &ArbDebugAPI{blockchain: l2BlockChain},
 		Public:    false,
 	})
-	apis = append(apis, NewShutterAPI(l2BlockChain))
+	apis = append(apis, NewShutterAPI(currentNode.TxPublisher))
 	stack.RegisterAPIs(apis)
 
 	stack.RegisterLifecycle(arbNodeLifecycle{currentNode})

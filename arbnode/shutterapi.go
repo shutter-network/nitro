@@ -1,10 +1,10 @@
 package arbnode
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -26,14 +26,14 @@ func DecodeBatchTx(hexString string) (*types.BatchTx, error) {
 }
 
 type ShutterAPI struct {
-	blockchain *core.BlockChain
+	txPublisher TransactionPublisher
 }
 
-func NewShutterAPI(blockchain *core.BlockChain) rpc.API {
+func NewShutterAPI(txPublisher TransactionPublisher) rpc.API {
 	return rpc.API{
 		Namespace: "shutter",
 		Version:   "1.0",
-		Service:   &ShutterAPI{blockchain: blockchain},
+		Service:   &ShutterAPI{txPublisher: txPublisher},
 		Public:    false,
 	}
 }
@@ -46,10 +46,12 @@ func (shapi *ShutterAPI) Hello(s string) string {
 }
 
 func (shapi *ShutterAPI) SubmitBatch(s string) error {
+	ctx := context.TODO()
 	batchTx, err := DecodeBatchTx(s)
 	if err != nil {
 		return err
 	}
-	_ = batchTx // XXX
-	return nil
+	tx := types.NewTx(batchTx)
+	err = shapi.txPublisher.PublishTransaction(ctx, tx)
+	return err
 }

@@ -5,6 +5,7 @@ package arbos
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"time"
@@ -291,6 +292,7 @@ func (p *TxProcessor) GasChargingHook(gasRemaining *uint64) (*common.Address, er
 
 	if *gasRemaining < gasNeededToStartEVM {
 		// the user couldn't pay for call data, so give up
+		fmt.Println("HERE TX PROC")
 		return tipRecipient, core.ErrIntrinsicGas
 	}
 	*gasRemaining -= gasNeededToStartEVM

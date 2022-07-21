@@ -223,6 +223,7 @@ func ProduceBlockAdvanced(
 			if dataGas > tx.Gas() {
 				// this txn is going to be rejected later
 				if hooks.RequireDataGas {
+					fmt.Println("HERE BLOCK PROC")
 					return nil, nil, core.ErrIntrinsicGas
 				}
 				dataGas = 0

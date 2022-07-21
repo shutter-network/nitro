@@ -254,6 +254,7 @@ func ProduceBlockAdvanced(
 				vm.Config{},
 			)
 			if err != nil {
+				log.Info("error in core.ApplyTransaction", "tx", tx, "err", err)
 				// Ignore this transaction if it's invalid under the state transition function
 				statedb.RevertToSnapshot(snap)
 				return nil, nil, err
